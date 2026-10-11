@@ -1,0 +1,79 @@
+name: notification-engine
+
+services:
+  # --- Message Broker (Kafka in KRaft Mode - No ZooKeeper) ---
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    ports:
+      - "9092:9092"   # External listener for clients
+      - "9093:9093"   # Controller listener
+    environment:
+      # --- KRaft Mode Settings ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      
+      # --- Broker Settings (Single-Node Dev) ---
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+  # --- Caching & Aggregation (Redis) ---
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # --- Persistent Database (Postgres) ---
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: notification_engine
+      POSTGRES_PASSWORD: notification_engine_pwd
+      POSTGRES_DB: notification_engine_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # --- Application API (Publisher) ---
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://notification_engine:notification_engine_pwd@postgres/notification_engine_db
+    depends_on:
+      - kafka
+      - redis
+      - postgres
+
+  # --- Worker Pool (Consumer) ---
+  worker:
+    build: .
+    # REMOVED: container_name: notification_engine_worker (caused the error)
+    command: python -m app.worker.worker
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://notification_engine:notification_engine_pwd@postgres/notification_engine_db
+    depends_on:
+      - kafka
+      - redis
+      - postgres
+    deploy:
+      replicas: 3
+
+volumes:
+  pgdata:
