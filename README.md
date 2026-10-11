@@ -16,3 +16,6 @@ A high-scale, production-ready notification system built with FastAPI, Kafka, Re
 2. Copy `.env.example` to `.env`
 3. Run `docker-compose up --build -d`
 4. API is available at `http://localhost:8000/docs`
+
+<img width="1600" height="1473" alt="image" src="https://github.com/user-attachments/assets/3441cb38-fe54-45fb-87dd-df9cfad2148d" />
+
